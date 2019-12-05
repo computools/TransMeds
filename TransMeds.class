@@ -1,0 +1,81 @@
+public class StreamAdapterStreamer implements Streamer{
+private final MessageChannel messageChannel;
+private final MessageProducer messageProducer;
+private final Integer messageSize;
+private final String topicName;
+private final Logger logger = LoggerFactory.getLogger(getClass());
+
+
+
+public StreamAdapterStreamer(MessageChannel messageChannel,
+MessageProducer messageProducer,
+Integer messageSize,
+String topicName) {
+this.messageChannel = messageChannel;
+this.messageProducer = messageProducer;
+this.messageSize = messageSize;
+this.topicName = topicName;
+}
+
+@Override
+public void stream(String cameraID, byte[] content) {
+if (content.length > messageSize){
+List<Message<byte[]>> messages = splitContent(cameraID, content) ;
+messages.forEach(messageChannel :: send);
+} else {
+messageChannel.send(createMessage(cameraID, content, 2));
+}
+}
+
+@Override
+public void unSubscribe(String cameraId) {
+CameraDTO cameraDTO = new CameraDTO();
+cameraDTO.setToken(cameraId);
+cameraDTO.setCameraStatus(CameraStatus.STOPED);
+try {
+messageProducer.sendCameraDetails(topicName, cameraDTO );
+} catch (JsonProcessingException e) {
+logger.error("Cant sent camera shutdown");
+}
+}
+
+private List<Message<byte[]>> splitContent(String cameraId, byte[] content) {
+List<Message<byte[]>> result = new ArrayList<>();
+
+int offset = 0;
+
+while ((offset + messageSize) < content.length){
+Integer messagePart = 0;
+if (offset > 0){
+messagePart = 1;
+} else if ((offset + messagePart) == content.length){
+messagePart = 2;
+}
+byte[] payload = new byte[messageSize];
+System.arraycopy(content, offset, payload, 0, messageSize);
+result.add(createMessage(cameraId, payload, messagePart));
+offset += messageSize;
+}
+
+if (offset != content.length){
+int globalOffset = offset;
+offset = content.length - offset;
+byte[] payload = new byte[offset];
+System.arraycopy(content, globalOffset, payload, 0, offset);
+result.add(createMessage(cameraId, payload, 2));
+}
+
+return result;
+}
+
+private Message<byte[]> createMessage(String cameraID, byte [] payload, Integer messagePart){
+return MessageBuilder.withPayload(payload)
+.setHeader(Streamer.MESSAGE_HEADER, cameraID)
+.setHeader(Streamer.MESSAGE_PART_HEADER, messagePart)
+.build();
+}
+
+@StreamListener(Streamer.INPUT_VIDEO)
+public void consumeStream(Message<byte[]> income){
+// We need subscription to avoid huge stacktraces
+}Введите сообщение
